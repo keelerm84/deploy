@@ -1,6 +1,8 @@
+use git2::Repository;
 use hubcaps::deployments::{DeploymentListOptions, DeploymentOptions};
 use hubcaps::{statuses, Credentials, Github};
 use indicatif::ProgressBar;
+use regex::Regex;
 use std::{env, thread, time};
 use structopt::StructOpt;
 
@@ -23,9 +25,36 @@ struct Opt {
     #[structopt(short, long, help = "Silence any output to STDOUT")]
     quiet: bool,
 
-    // TODO(mmk) Need to hook this up still
     #[structopt(help = "The repository you want to deploy. Defaults to current repository")]
     repository: Option<String>,
+}
+
+fn split_into_owner_and_repo(path: String) -> Result<(String, String), Box<dyn std::error::Error>> {
+    let splits = path.split("/").collect::<Vec<&str>>();
+    match splits.len() {
+        2 => Ok((splits[0].into(), splits[1].into())),
+        _ => Err("Provided repository does not match owner/repository format".into()),
+    }
+}
+
+fn get_repository_and_owner(
+    repository: Option<String>,
+) -> Result<(String, String), Box<dyn std::error::Error>> {
+    match repository {
+        Some(r) => split_into_owner_and_repo(r),
+        None => {
+            let repository = Repository::open(env::current_dir()?)?;
+            let remote = repository.find_remote("origin")?;
+            match remote.url() {
+                Some(url) => {
+                    let re = Regex::new(r".*github.com.(?P<o>[^/]+)/(?P<r>.*).git")?;
+                    let url = re.replace_all(url, "$o/$r");
+                    split_into_owner_and_repo(url.into())
+                }
+                None => Err("No URL set for origin remote".into()),
+            }
+        }
+    }
 }
 
 #[tokio::main]
@@ -48,8 +77,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             );
             spinner.enable_steady_tick(100);
 
-            // TODO(mmk) Need to determine this pairing differently.
-            let repo = github.repo("researchsquare", "deploy-me");
+            let (owner, repository) = get_repository_and_owner(opt.repository)?;
+            let repo = github.repo(&owner, &repository);
             let deployments = repo.deployments();
             let list_options = &DeploymentListOptions::builder()
                 .environment(opt.env.clone().unwrap())
@@ -66,8 +95,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     let sha = d.sha;
                     spinner.println(format!(
                         "See commit difference at https://github.com/{}/{}/compare/{}...{}",
-                        "researchsquare",
-                        "deploy-me",
+                        &owner,
+                        &repository,
+                        // TODO(mmk) We cannot assume this has been set.
                         opt.git_ref.clone().unwrap(),
                         sha
                     ));
