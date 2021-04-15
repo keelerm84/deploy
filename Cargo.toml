@@ -1,6 +1,6 @@
 [package]
 name = "deploy"
-version = "0.1.0"
+version = "0.0.0"
 authors = ["Matthew M. Keeler <keelerm84@gmail.com>"]
 edition = "2018"
 
@@ -13,3 +13,4 @@ indicatif = "0.15.0"
 regex = "1.4.5"
 structopt = "0.3.21"
 tokio = { version = "0.2.25", features=["full"] }
+openssl = { version = "0.10", features=["vendored"] }

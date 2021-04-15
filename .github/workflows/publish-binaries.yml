@@ -1,0 +1,51 @@
+name: Build and upload binaries
+
+on: workflow_dispatch
+
+jobs:
+  publish-binaries:
+    name: Build and release
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        include:
+          - os: ubuntu-latest
+            artifact_name: deploy
+            asset_name: deploy-linux-musl
+            target: x86_64-unknown-linux-musl
+          - os: macos-latest
+            artifact_name: deploy
+            asset_name: deploy-macos-amd64
+            target: x86_64-apple-darwin
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v2
+
+      - name: Setup toolchain
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+          target: ${{ matrix.target }}
+
+      - name: Build binary
+        uses: actions-rs/cargo@v1
+        with:
+          use-cross: true
+          command: build
+          args: --release --target ${{ matrix.target }}
+
+      - name: Determine release version
+        id: tag-info
+        run: |
+          VERSION=$(grep '^version' Cargo.toml | tr -dc '[0-9.]')
+
+          echo "::set-output name=version::${VERSION}"
+
+      - name: Upload binary to release
+        uses: svenstaro/upload-release-action@v1-release
+        with:
+          repo_token: ${{ secrets.GITHUB_TOKEN }}
+          file: target/${{ matrix.target }}/release/${{ matrix.artifact_name }}
+          asset_name: ${{ matrix.asset_name }}
+          tag: v${{ steps.tag-info.outputs.version }}
