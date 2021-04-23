@@ -107,6 +107,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
 
             let options = &DeploymentOptions::builder(opt.git_ref.clone().unwrap())
+                .auto_merge(false)
                 .environment(opt.env.clone().unwrap())
                 // TODO(mmk) We need a better description to be provided here.
                 .description::<String>(
