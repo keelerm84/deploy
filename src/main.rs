@@ -1,8 +1,8 @@
 use git2::Repository;
+use git_url_parse::GitUrl;
 use hubcaps::deployments::{DeploymentListOptions, DeploymentOptions};
 use hubcaps::{statuses, Credentials, Github};
 use indicatif::ProgressBar;
-use regex::Regex;
 use std::{env, thread, time};
 use structopt::StructOpt;
 
@@ -29,31 +29,32 @@ struct Opt {
     repository: Option<String>,
 }
 
-fn split_into_owner_and_repo(path: String) -> Result<(String, String), Box<dyn std::error::Error>> {
-    let splits = path.split("/").collect::<Vec<&str>>();
-    match splits.len() {
-        2 => Ok((splits[0].into(), splits[1].into())),
-        _ => Err("Provided repository does not match owner/repository format".into()),
+fn parse_owner_and_name_from_remote_url(
+    url: String,
+) -> Result<(String, String), Box<dyn std::error::Error>> {
+    let git_url = GitUrl::parse(&url)?;
+    let owner = git_url.owner;
+
+    match git_url.host {
+        Some(host) if host == "github.com" && owner.is_some() => Ok((owner.unwrap(), git_url.name)),
+        _ => Err("Host could not be determined or is not a GitHub remote".into()),
     }
 }
 
-fn get_repository_and_owner(
+fn determine_repository_string(
     repository: Option<String>,
 ) -> Result<(String, String), Box<dyn std::error::Error>> {
-    match repository {
-        Some(r) => split_into_owner_and_repo(r),
-        None => {
-            let repository = Repository::open(env::current_dir()?)?;
-            let remote = repository.find_remote("origin")?;
-            match remote.url() {
-                Some(url) => {
-                    let re = Regex::new(r".*github.com.(?P<o>[^/]+)/(?P<r>.*).git")?;
-                    let url = re.replace_all(url, "$o/$r");
-                    split_into_owner_and_repo(url.into())
-                }
-                None => Err("No URL set for origin remote".into()),
-            }
-        }
+    if let Some(r) = repository {
+        return parse_owner_and_name_from_remote_url(format!("https://github.com/{}", r));
+    }
+
+    // TODO(mmk) Under which conditions does this fail?
+    let repository = Repository::open(env::current_dir()?)?;
+    let remote = repository.find_remote("origin")?;
+
+    match remote.url() {
+        Some(url) => parse_owner_and_name_from_remote_url(url.into()),
+        None => Err("No URL set for origin remote".into()),
     }
 }
 
@@ -77,7 +78,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             );
             spinner.enable_steady_tick(100);
 
-            let (owner, repository) = get_repository_and_owner(opt.repository)?;
+            let (owner, repository) = determine_repository_string(opt.repository)?;
             let repo = github.repo(&owner, &repository);
             let deployments = repo.deployments();
             let list_options = &DeploymentListOptions::builder()
@@ -148,7 +149,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                             status
                                 .description
                                 .clone()
-                                .unwrap_or_else(|| "No description given".to_string())
+                                .unwrap_or_else(|| "No description given".into())
                         ));
                     }
                     statuses::State::Success => {
@@ -160,7 +161,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                             status
                                 .description
                                 .clone()
-                                .unwrap_or_else(|| "No description given".to_string())
+                                .unwrap_or_else(|| "No description given".into())
                         ));
                     }
                 }
@@ -171,5 +172,34 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             Ok(())
         }
         _ => Err("Missing GITHUB_TOKEN. Please set this environment variable.".into()),
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+    use test_case::test_case;
+
+    #[test_case("git@github.com:keelerm84/deploy.git", "keelerm84", "deploy"; "ssh style")]
+    #[test_case("git@github.com:keelerm84/deploy", "keelerm84", "deploy"; "ssh style without .git")]
+    #[test_case("https://github.com/keelerm84/deploy.git", "keelerm84", "deploy"; "https style")]
+    #[test_case("https://github.com/keelerm84/deploy", "keelerm84", "deploy"; "https style without .git")]
+    fn test_correctly_parses_github_remote(url: &str, owner: &str, repo: &str) {
+        match parse_owner_and_name_from_remote_url(url.to_string()) {
+            Ok((o, r)) => {
+                assert_eq!(owner, o);
+                assert_eq!(repo, r);
+            }
+            _ => assert!(false, format!("{} should not generate an error", url)),
+        }
+    }
+
+    #[test_case("git@bitbucket.com:keelerm84/deploy.git"; "ssh style")]
+    #[test_case("https://bitbucket.com/keelerm84/deploy.git"; "http style")]
+    fn test_cannot_parse_non_github_remote(url: &str) {
+        assert!(
+            parse_owner_and_name_from_remote_url(url.to_string()).is_err(),
+            format!("{} should not be parsable", url)
+        );
     }
 }
