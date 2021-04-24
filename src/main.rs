@@ -15,7 +15,6 @@ struct Opt {
     #[structopt(short, long, help = "The environment to deploy to")]
     env: Option<String>,
 
-    // TODO(mmk) Need to hook this up still
     #[structopt(short, long, help = "Ignore commit status checks")]
     force: bool,
 
@@ -106,16 +105,27 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 }
             }
 
-            let options = &DeploymentOptions::builder(opt.git_ref.clone().unwrap())
+            let mut builder = DeploymentOptions::builder(opt.git_ref.clone().unwrap());
+            builder
                 .auto_merge(false)
                 .environment(opt.env.clone().unwrap())
                 // TODO(mmk) We need a better description to be provided here.
                 .description::<String>(
                     "A practice deployment from the rust version of deploy".into(),
-                )
-                .build();
+                );
+
+            // From the GitHub deployment API documentation:
+            //
+            // The status contexts to verify against commit status checks. If you omit this
+            // parameter, GitHub verifies all unique contexts before creating a deployment. To
+            // bypass checking entirely, pass an empty array. Defaults to all unique contexts.
+            if opt.force == true {
+                let contexts: Vec<String> = Vec::new();
+                builder.required_contexts(contexts);
+            }
+
             spinner.set_message("Triggering deployment");
-            let deploy = deployments.create(options).await?;
+            let deploy = deployments.create(&builder.build()).await?;
 
             spinner.set_style(
                 indicatif::ProgressStyle::default_spinner().template(&format!(
