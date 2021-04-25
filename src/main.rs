@@ -7,24 +7,32 @@ use std::{env, thread, time};
 use structopt::StructOpt;
 
 #[derive(StructOpt, Debug)]
-#[structopt(name = "deploy", about = "A CLI tool to trigger GitHub deployments")]
+#[structopt(name = "deploy")]
+/// A CLI tool to trigger GitHub deployments
 struct Opt {
-    #[structopt(short = "r", long = "ref", aliases = &["branch", "commit", "tag"], help = "The git ref to deploy. Can be a git commit, branch, or tag.")]
+    /// The git ref to deploy. Can be a git commit, branch, or tag. When <repository> is specified, <git-ref> is also required.
+    #[structopt(short = "r", long = "ref", aliases = &["branch", "commit", "tag"])]
     git_ref: Option<String>,
 
-    #[structopt(short, long, help = "The environment to deploy to")]
+    /// The environment to deploy to
+    #[structopt(short, long)]
     env: Option<String>,
 
-    #[structopt(short, long, help = "Ignore commit status checks")]
+    /// Ignore commit status checks
+    #[structopt(short, long)]
     force: bool,
 
-    #[structopt(short, long, help = "Don't wait for the deployment to complete")]
+    /// Don't wait for the deployment to complete
+    #[structopt(short, long)]
     detached: bool,
 
-    #[structopt(short, long, help = "Silence any output to STDOUT")]
+    /// Silence any output to STDOUT
+    #[structopt(short, long)]
     quiet: bool,
 
-    #[structopt(help = "The repository you want to deploy. Defaults to current repository")]
+    // TODO(mmk) Can we make repository required if ref isn't provided?
+    /// The repository you want to deploy to. Defaults to current repository
+    #[structopt(requires = "git-ref")]
     repository: Option<String>,
 }
 
@@ -54,6 +62,18 @@ fn determine_repository_string(
     match remote.url() {
         Some(url) => parse_owner_and_name_from_remote_url(url.into()),
         None => Err("No URL set for origin remote".into()),
+    }
+}
+
+fn determine_current_branch() -> Result<String, Box<dyn std::error::Error>> {
+    let repository = Repository::open(env::current_dir()?)?;
+    let head = repository.head();
+    match head {
+        Ok(reference) => match reference.name() {
+            Some(name) => return Ok(name.into()),
+            _ => Err("Unable to determine branch name".into()),
+        },
+        _ => Err("Unable to determine branch name".into()),
     }
 }
 
@@ -90,22 +110,26 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             // How should we handle failed deployments? Pending deployments?
             let results = deployments.list(list_options).await?;
 
+            let git_ref = match opt.git_ref {
+                Some(reference) => reference,
+                None => match determine_current_branch() {
+                    Ok(reference) => reference,
+                    _ => return Err("Unable to determine correct reference".into()),
+                },
+            };
+
             if !results.is_empty() {
                 for d in results {
                     let sha = d.sha;
                     spinner.println(format!(
                         "See commit difference at https://github.com/{}/{}/compare/{}...{}",
-                        &owner,
-                        &repository,
-                        // TODO(mmk) We cannot assume this has been set.
-                        opt.git_ref.clone().unwrap(),
-                        sha
+                        &owner, &repository, git_ref, sha
                     ));
                     break;
                 }
             }
 
-            let mut builder = DeploymentOptions::builder(opt.git_ref.clone().unwrap());
+            let mut builder = DeploymentOptions::builder(git_ref);
             builder
                 .auto_merge(false)
                 .environment(opt.env.clone().unwrap())
