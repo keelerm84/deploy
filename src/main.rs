@@ -1,6 +1,7 @@
+use anyhow::{anyhow, Context, Result};
 use git2::Repository;
 use git_url_parse::GitUrl;
-use hubcaps::deployments::{DeploymentListOptions, DeploymentOptions};
+use hubcaps::deployments::{DeploymentListOptions, DeploymentOptions, DeploymentStatus};
 use hubcaps::{statuses, Credentials, Github};
 use indicatif::ProgressBar;
 use std::{env, thread, time};
@@ -36,49 +37,44 @@ struct Opt {
     repository: Option<String>,
 }
 
-fn parse_owner_and_name_from_remote_url(
-    url: String,
-) -> Result<(String, String), Box<dyn std::error::Error>> {
+fn parse_owner_and_name_from_remote_url(url: String) -> Result<(String, String)> {
     let git_url = GitUrl::parse(&url)?;
     let owner = git_url.owner;
 
     match git_url.host {
         Some(host) if host == "github.com" && owner.is_some() => Ok((owner.unwrap(), git_url.name)),
-        _ => Err("Host could not be determined or is not a GitHub remote".into()),
+        _ => Err(anyhow!(
+            "Host could not be determined or is not a GitHub remote"
+        )),
     }
 }
 
-fn determine_repository_string(
-    repository: Option<String>,
-) -> Result<(String, String), Box<dyn std::error::Error>> {
+fn determine_repository_string(repository: Option<String>) -> Result<(String, String)> {
     if let Some(r) = repository {
         return parse_owner_and_name_from_remote_url(format!("https://github.com/{}", r));
     }
 
     // TODO(mmk) Under which conditions does this fail?
-    let repository = Repository::open(env::current_dir()?)?;
+    let current_dir = env::current_dir().context("Unable to get cwd")?;
+    let repository = Repository::open(current_dir).context("Cannot access local repository")?;
     let remote = repository.find_remote("origin")?;
+    let url = remote.url().context("No URL set for origin")?;
 
-    match remote.url() {
-        Some(url) => parse_owner_and_name_from_remote_url(url.into()),
-        None => Err("No URL set for origin remote".into()),
-    }
+    Ok(parse_owner_and_name_from_remote_url(url.into())?)
 }
 
-fn determine_current_branch() -> Result<String, Box<dyn std::error::Error>> {
+fn determine_current_branch() -> Result<String> {
     let repository = Repository::open(env::current_dir()?)?;
-    let head = repository.head();
-    match head {
-        Ok(reference) => match reference.name() {
-            Some(name) => return Ok(name.into()),
-            _ => Err("Unable to determine branch name".into()),
-        },
-        _ => Err("Unable to determine branch name".into()),
-    }
+    let head = repository
+        .head()
+        .context("Unable to determine HEAD of repository")?;
+    let name = head.name().context("Unable to determine current branch")?;
+
+    Ok(name.into())
 }
 
 #[tokio::main]
-async fn main() -> Result<(), Box<dyn std::error::Error>> {
+async fn main() -> Result<()> {
     match env::var("GITHUB_TOKEN").ok() {
         Some(token) => {
             let opt = Opt::from_args();
@@ -86,7 +82,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             let github = Github::new(
                 concat!(env!("CARGO_PKG_NAME"), "/", env!("CARGO_PKG_VERSION")),
                 Credentials::Token(token),
-            )?;
+            )
+            .context("Unable to create Github client.")?;
 
             let spinner = match opt.quiet {
                 true => ProgressBar::hidden(),
@@ -108,14 +105,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             // recent, or do we need to sort?
             //
             // How should we handle failed deployments? Pending deployments?
-            let results = deployments.list(list_options).await?;
+            let results = deployments
+                .list(list_options)
+                .await
+                .context("Unable to get a list of deployments")?;
 
             let git_ref = match opt.git_ref {
                 Some(reference) => reference,
-                None => match determine_current_branch() {
-                    Ok(reference) => reference,
-                    _ => return Err("Unable to determine correct reference".into()),
-                },
+                None => determine_current_branch()?,
             };
 
             if !results.is_empty() {
@@ -149,7 +146,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
 
             spinner.set_message("Triggering deployment");
-            let deploy = deployments.create(&builder.build()).await?;
+            let deploy = deployments
+                .create(&builder.build())
+                .await
+                .context("Could not create the specified deployment")?;
 
             spinner.set_style(
                 indicatif::ProgressStyle::default_spinner().template(&format!(
@@ -163,16 +163,29 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 return Ok(());
             }
 
+            let mut failures: i32 = 0;
             loop {
                 thread::sleep(time::Duration::from_millis(300));
-                let statuses = deployments.statuses(deploy.id).list().await?;
+                let statuses: Vec<DeploymentStatus>;
+                if let Ok(s) = deployments.statuses(deploy.id).list().await {
+                    statuses = s;
+                    failures = 0;
+                } else if failures == 3 {
+                    return Err(anyhow!("Failed to check deployment status. Exiting."));
+                } else {
+                    failures += 1;
+                    continue;
+                }
 
                 if statuses.is_empty() {
                     spinner.set_message("Waiting for deployments to begin");
                     continue;
                 }
 
-                let status = statuses.first().unwrap();
+                let status = statuses
+                    .first()
+                    .context("Could not read first deployment status")?;
+
                 match status.state {
                     statuses::State::Pending => {
                         spinner.set_message("Building");
@@ -206,7 +219,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
             Ok(())
         }
-        _ => Err("Missing GITHUB_TOKEN. Please set this environment variable.".into()),
+        _ => Err(anyhow!(
+            "Missing GITHUB_TOKEN. Please set this environment variable."
+        )),
     }
 }
 
