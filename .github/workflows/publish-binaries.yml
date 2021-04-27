@@ -11,11 +11,12 @@ jobs:
         include:
           - os: ubuntu-latest
             artifact_name: deploy
-            asset_name: deploy-linux-musl
             target: x86_64-unknown-linux-musl
+          - os: ubuntu-latest
+            artifact_name: deploy
+            target: x86_64-unknown-linux-gnu
           - os: macos-latest
             artifact_name: deploy
-            asset_name: deploy-macos-amd64
             target: x86_64-apple-darwin
 
     steps:
@@ -47,5 +48,5 @@ jobs:
         with:
           repo_token: ${{ secrets.GITHUB_TOKEN }}
           file: target/${{ matrix.target }}/release/${{ matrix.artifact_name }}
-          asset_name: ${{ matrix.asset_name }}
+          asset_name: deploy-${{ matrix.target }}
           tag: v${{ steps.tag-info.outputs.version }}
