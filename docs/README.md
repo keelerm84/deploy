@@ -8,7 +8,10 @@ A small rust program for creating [GitHub Deployments][github-deployments].
 
 To run this project, you will need to have the following environment variables set.
 
-`GITHUB_TOKEN`. This token is used to create deployments on any target repositories.
+* `GITHUB_TOKEN`
+
+   This [personal access token][tokens] is used to create deployments on any target repositories. \
+   The token requires `repo:status` and `repo_deployment` access.
 
 ## Usage
 
@@ -40,4 +43,5 @@ This project is a Rust implementation from an existing go project. You can view
 the original project [here][ported-from-go].
 
 [github-deployments]: https://developer.github.com/v3/repos/deployments/
+[tokens]: https://github.com/settings/tokens
 [ported-from-go]: https://github.com/remind101/deploy
