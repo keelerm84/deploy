@@ -2,6 +2,13 @@
 
 <!--next-version-placeholder-->
 
+## v0.2.0 (2021-04-27)
+### Feature
+* Add self-updating sub command ([`c14e384`](https://github.com/keelerm84/deploy/commit/c14e384b8d29dd70f8f0d7deee02164f2c2121b4))
+
+### Documentation
+* Expand information about GitHub token ([`5557532`](https://github.com/keelerm84/deploy/commit/55575323c8b44ebd054982b4e784c537f0eb1498))
+
 ## v0.1.0 (2021-04-27)
 ### Feature
 * Improve error messages ([`8bddd9b`](https://github.com/keelerm84/deploy/commit/8bddd9b442a2cd51996ee4791c9f0282c186601c))
