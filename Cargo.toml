@@ -1,6 +1,6 @@
 [package]
 name = "deploy"
-version = "0.0.0"
+version = "0.1.0"
 authors = ["Matthew M. Keeler <keelerm84@gmail.com>"]
 edition = "2018"
 
