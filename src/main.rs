@@ -31,10 +31,17 @@ struct Opt {
     #[structopt(short, long)]
     quiet: bool,
 
-    // TODO(mmk) Can we make repository required if ref isn't provided?
     /// The repository you want to deploy to. Defaults to current repository
     #[structopt(requires = "git-ref")]
     repository: Option<String>,
+
+    #[structopt(subcommand)]
+    cmd: Option<Command>,
+}
+
+#[derive(Debug, PartialEq, StructOpt)]
+enum Command {
+    Update,
 }
 
 fn parse_owner_and_name_from_remote_url(url: String) -> Result<(String, String)> {
@@ -78,6 +85,23 @@ async fn main() -> Result<()> {
     match env::var("GITHUB_TOKEN").ok() {
         Some(token) => {
             let opt = Opt::from_args();
+
+            if let Some(cmd) = opt.cmd {
+                return match cmd {
+                    Command::Update => {
+                        let status = self_update::backends::github::Update::configure()
+                            .repo_owner("keelerm84")
+                            .repo_name(env!("CARGO_PKG_NAME"))
+                            .bin_name("deploy")
+                            .show_download_progress(true)
+                            .current_version(env!("CARGO_PKG_VERSION"))
+                            .build()?
+                            .update()?;
+                        println!("Update status: `{}`!", status.version());
+                        Ok(())
+                    }
+                };
+            }
 
             let github = Github::new(
                 concat!(env!("CARGO_PKG_NAME"), "/", env!("CARGO_PKG_VERSION")),

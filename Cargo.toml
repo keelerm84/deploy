@@ -15,6 +15,7 @@ tokio = { version = "0.2.25", features=["full"] }
 openssl = { version = "0.10", features=["vendored"] }
 git-url-parse = "0.3.1"
 anyhow = "1.0.40"
+self_update = "0.26.0"
 
 [dev-dependencies]
 test-case = "1.1.0"

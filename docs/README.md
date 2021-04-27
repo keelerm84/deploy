@@ -33,6 +33,12 @@ Deploy the current branch of the current repo to staging:
 $ deploy --env=staging
 ```
 
+Update the executable from the latest GitHub release:
+
+```console
+$ deploy update
+```
+
 ## License
 
 [MIT](./LICENSE.md)
