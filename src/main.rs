@@ -212,7 +212,7 @@ async fn main() -> Result<()> {
 
                 match status.state {
                     statuses::State::Pending => {
-                        spinner.set_message("Building");
+                        spinner.set_message("Deploying");
                         continue;
                     }
                     statuses::State::Error => {
