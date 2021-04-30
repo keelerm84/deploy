@@ -17,7 +17,7 @@ struct Opt {
 
     /// The environment to deploy to
     #[structopt(short, long)]
-    env: Option<String>,
+    env: String,
 
     /// Ignore commit status checks
     #[structopt(short, long)]
@@ -122,7 +122,7 @@ async fn main() -> Result<()> {
             let repo = github.repo(&owner, &repository);
             let deployments = repo.deployments();
             let list_options = &DeploymentListOptions::builder()
-                .environment(opt.env.clone().unwrap())
+                .environment(opt.env.clone())
                 .build();
 
             // TODO(mmk) What is the ordering here? Can we always assume the first one is the most
@@ -153,7 +153,7 @@ async fn main() -> Result<()> {
             let mut builder = DeploymentOptions::builder(git_ref);
             builder
                 .auto_merge(false)
-                .environment(opt.env.clone().unwrap())
+                .environment(opt.env)
                 // TODO(mmk) We need a better description to be provided here.
                 .description::<String>(
                     "A practice deployment from the rust version of deploy".into(),
